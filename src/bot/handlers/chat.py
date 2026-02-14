@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.types import Message
 from beartype import beartype
+
+# Настройка логгера для модуля
+logger = logging.getLogger(__name__)
 
 from src.ai.ollama_client import OllamaClient
 from src.ai.prompts import create_sales_chat_messages
@@ -23,8 +27,43 @@ from src.utils.text_filter import clean_text
 
 router = Router()
 
+# Константы
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096  # Максимальная длина сообщения в Telegram
+
 # Кэш для отслеживания последней показанной подсказки
 _last_tips_shown: dict[int, int] = {}
+_tips_lock = asyncio.Lock()  # Блокировка для потокобезопасного доступа
+
+
+def truncate_message(text: str, max_length: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> str:
+    """Обрезать сообщение до максимальной длины с добавлением индикатора.
+    
+    Args:
+        text: Текст сообщения
+        max_length: Максимальная длина
+        
+    Returns:
+        str: Обрезанный текст
+    """
+    if len(text) <= max_length:
+        return text
+    
+    # Оставить место для суффикса
+    suffix = "\n\n... (сообщение обрезано)"
+    max_text_length = max_length - len(suffix)
+    
+    # Попытаться обрезать по границе предложения
+    truncated = text[:max_text_length]
+    last_period = truncated.rfind('.')
+    last_question = truncated.rfind('?')
+    last_exclamation = truncated.rfind('!')
+    
+    # Найти последнюю границу предложения
+    last_sentence_end = max(last_period, last_question, last_exclamation)
+    if last_sentence_end > max_text_length * 0.7:  # Не обрезать слишком много
+        truncated = truncated[:last_sentence_end + 1]
+    
+    return truncated + suffix
 
 
 @router.message(F.text)
@@ -84,10 +123,7 @@ async def handle_text_message(
         # Найден точный FAQ ответ - отвечаем мгновенно без AI
         faq_item, score = quick_result
         ai_response = faq_item.answer
-        try:
-            print(f"Quick FAQ match found (score: {score:.2f}), skipping AI")
-        except UnicodeEncodeError:
-            print("Quick FAQ match found, skipping AI")
+        logger.info(f"Quick FAQ match found (score: {score:.2f}), skipping AI")
     
     # Попытка 2: Использовать Ollama AI с продающим промптом (только если нет быстрого ответа)
     loading = None
@@ -211,54 +247,49 @@ async def handle_text_message(
                     # Запустить анимацию в фоне
                     animation_task = asyncio.create_task(animate_thinking_indicator())
                     
-                    async def on_token(token: str) -> None:
-                        """Callback для сбора токенов без постепенного обновления."""
-                        nonlocal animation_stopped, token_count
-                        full_response.append(token)
-                        token_count += 1
-                        
-                        # Если получили первый токен - остановить анимацию
-                        if token_count == 1 and not animation_stopped:
-                            animation_stopped = True
-                    
-                    # Запустить streaming генерацию
-                    streaming_success = False
                     try:
-                        ai_response = await ollama_client.chat_stream(
-                            chat_messages,
-                            on_token=on_token
-                        )
+                        async def on_token(token: str) -> None:
+                            """Callback для сбора токенов без постепенного обновления."""
+                            nonlocal animation_stopped, token_count
+                            full_response.append(token)
+                            token_count += 1
+                            
+                            # Если получили первый токен - остановить анимацию
+                            if token_count == 1 and not animation_stopped:
+                                animation_stopped = True
                         
-                        # КРИТИЧЕСКИ ВАЖНО: если streaming успешен, отмечаем это СРАЗУ
-                        if ai_response and len(ai_response.strip()) > 0:
-                            streaming_success = True
+                        # Запустить streaming генерацию
+                        streaming_success = False
+                        streaming_error_occurred = False
                         
-                    except Exception as streaming_error:
-                        # ВАЖНО: Если streaming успешен - НЕ запускать fallback
+                        try:
+                            ai_response = await ollama_client.chat_stream(
+                                chat_messages,
+                                on_token=on_token
+                            )
+                            
+                            # Если streaming успешен - отметить это
+                            if ai_response and len(ai_response.strip()) > 0:
+                                streaming_success = True
+                            
+                        except asyncio.TimeoutError:
+                            # Timeout - запустить fallback
+                            streaming_error_occurred = True
+                            logger.warning("Ollama timeout, switching to fallback")
+                            
+                        except Exception as streaming_error:
+                            # Streaming провалился - запустить fallback
+                            streaming_error_occurred = True
+                            logger.error(f"Streaming error: {streaming_error}, falling back to non-streaming mode")
+                        
+                        # Обработка результата streaming
                         if streaming_success:
-                            # Streaming завершился успешно, просто остановить анимацию
-                            animation_stopped = True
-                            animation_task.cancel()
-                            try:
-                                await animation_task
-                            except asyncio.CancelledError:
-                                pass
-                        else:
+                            # Успешный streaming - очистить текст
+                            ai_response = clean_text(ai_response)
+                            used_streaming = True
+                            
+                        elif streaming_error_occurred:
                             # Streaming провалился - запустить fallback режим
-                            # Остановить анимацию при ошибке
-                            animation_stopped = True
-                            animation_task.cancel()
-                            try:
-                                await animation_task
-                            except asyncio.CancelledError:
-                                pass
-                            
-                            # Попытка 2: Fallback на обычный режим без streaming
-                            try:
-                                print(f"Streaming failed: {streaming_error}, falling back to non-streaming mode")
-                            except UnicodeEncodeError:
-                                print("Streaming failed, falling back to non-streaming mode")
-                            
                             # Показать индикатор загрузки для fallback режима
                             try:
                                 await status_msg.edit_text("Думаю над ответом... 🧠")
@@ -268,63 +299,56 @@ async def handle_text_message(
                             loading = await LoadingIndicator.start(message)
                             try:
                                 ai_response = await ollama_client.chat(chat_messages)
-                                # POST-PROCESSING: Очистка для fallback режима
+                                # Очистка для fallback режима
                                 if ai_response:
                                     ai_response = clean_text(ai_response)
                             finally:
                                 await loading.stop()
-                                # Удалить status_msg т.к. LoadingIndicator уже удалил свое сообщение
+                                # Удалить status_msg
                                 try:
                                     await status_msg.delete()
                                 except Exception:
                                     pass
-                    
-                    # ПОСТ-ОБРАБОТКА: Если streaming успешен, обработать ответ ВНЕ try блока
-                    if streaming_success and ai_response:
-                        # Очистка английских слов и грамматических ошибок
-                        ai_response = clean_text(ai_response)
                         
-                        # Остановить анимацию
+                    except Exception as outer_error:
+                        # Внешние ошибки (не связанные со streaming)
+                        logger.error(f"Unexpected error in AI generation: {outer_error}")
+                        
+                    finally:
+                        # КРИТИЧЕСКИ ВАЖНО: Всегда отменить animation_task
                         animation_stopped = True
                         animation_task.cancel()
                         try:
                             await animation_task
                         except asyncio.CancelledError:
                             pass
-                        
-                        # Отметить успешное использование streaming
-                        used_streaming = True
-                    
-                except asyncio.TimeoutError:
-                    # Timeout - переключаемся на fallback поиск
-                    print("Ollama timeout, switching to fallback")
-                    try:
-                        await status_msg.edit_text("Ответ занимает больше времени... 🔍")
-                    except Exception:
-                        pass
+
+                except Exception as e:
+                    logger.error(f"Ошибка при работе с Ollama: {e}")
+                    if loading:
+                        await loading.stop()
+                        loading = None
+                    # Удалить status_msg если был создан
+                    if status_msg:
+                        try:
+                            await status_msg.delete()
+                        except Exception:
+                            pass
+                        status_msg = None
 
         except Exception as e:
-            try:
-                print(f"Ошибка при работе с Ollama: {e}")
-            except UnicodeEncodeError:
-                print("Ошибка при работе с Ollama")
+            logger.error(f"Critical error in Ollama handler: {e}")
             if loading:
                 await loading.stop()
-                loading = None
-            # Удалить status_msg если был создан
             if status_msg:
                 try:
                     await status_msg.delete()
                 except Exception:
                     pass
-                status_msg = None
 
     # Попытка 3: Fallback на простой поиск по FAQ
     if not ai_response:
-        try:
-            print("Ollama недоступна или не вернула ответ. Использую fallback поиск.")
-        except UnicodeEncodeError:
-            pass  # Игнорируем ошибку кодировки
+        logger.warning("Ollama недоступна или не вернула ответ. Использую fallback поиск.")
 
         # Простой поиск по FAQ с пониженным порогом
         found_faq = search_faq(
@@ -369,6 +393,9 @@ async def handle_text_message(
     if should_show_hints(ai_response, intent):
         formatted_response += "\n\n━━━━━━━━━━━━━━━\n"
         formatted_response += "\n💡 Хотите узнать больше? Используйте /menu"
+    
+    # Проверить и обрезать длину сообщения если нужно
+    formatted_response = truncate_message(formatted_response)
 
     # Сохранить ответ в БД
     await context.save_message(

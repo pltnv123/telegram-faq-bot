@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
+import re
+from functools import lru_cache
+
 from beartype import beartype
 
 from src.knowledge.faq_loader import FAQItem, KnowledgeBase
+
+
+def normalize_text(text: str) -> str:
+    """Нормализовать текст для поиска.
+    
+    Args:
+        text: Исходный текст
+        
+    Returns:
+        str: Нормализованный текст
+    """
+    # Приводим к нижнему регистру
+    text = text.lower()
+    # Удаляем лишние пробелы
+    text = re.sub(r'\s+', ' ', text)
+    # Удаляем знаки препинания (кроме пробелов)
+    text = re.sub(r'[^\w\s]', '', text)
+    return text.strip()
 
 
 @beartype
@@ -18,7 +39,8 @@ def calculate_relevance(query: str, faq_item: FAQItem) -> float:
     Returns:
         float: Оценка релевантности (0.0 - 1.0)
     """
-    query_lower = query.lower()
+    # Нормализация текста для более точного поиска
+    query_normalized = normalize_text(query)
     score = 0.0
 
     # Стоп-слова которые игнорируем (уменьшенный список для лучшего понимания)
@@ -30,41 +52,46 @@ def calculate_relevance(query: str, faq_item: FAQItem) -> float:
 
     # Фильтруем стоп-слова и короткие слова
     query_words = [
-        word for word in query_lower.split()
-        if len(word) > 3 and word not in stop_words
+        word for word in query_normalized.split()
+        if len(word) > 2 and word not in stop_words
     ]
 
     if not query_words:
         return 0.0
 
     # Проверка вопроса
-    question_lower = faq_item.question.lower()
-    if query_lower in question_lower:
+    question_normalized = normalize_text(faq_item.question)
+    question_words = set(question_normalized.split())
+    
+    # Точное совпадение всех слов запроса
+    if all(word in question_normalized for word in query_words):
         score += 1.0
     else:
-        # Считаем сколько значимых слов совпало
-        matched_words = sum(1 for word in query_words if word in question_lower)
+        # Считаем сколько значимых слов совпало (целые слова, не подстроки)
+        matched_words = sum(1 for word in query_words if word in question_words)
         if matched_words > 0:
-            score += 0.5 * (matched_words / len(query_words))
+            score += 0.6 * (matched_words / len(query_words))
 
     # Проверка ключевых слов
-    keywords_lower = [k.lower() for k in faq_item.keywords]
-    for keyword in keywords_lower:
-        if keyword in query_lower:
+    keywords_normalized = [normalize_text(k) for k in faq_item.keywords]
+    for keyword in keywords_normalized:
+        if keyword in query_normalized:
             score += 0.8
         else:
             # Частичное совпадение только значимых слов
-            if any(word in keyword for word in query_words):
-                score += 0.3
+            keyword_words = set(keyword.split())
+            matched_keyword_words = sum(1 for word in query_words if word in keyword_words)
+            if matched_keyword_words > 0:
+                score += 0.4 * (matched_keyword_words / len(query_words))
 
     # Проверка ответа (меньший вес)
-    answer_lower = faq_item.answer.lower()
-    if query_lower in answer_lower:
-        score += 0.3
-    else:
-        matched_in_answer = sum(1 for word in query_words if word in answer_lower)
-        if matched_in_answer > 0:
-            score += 0.1 * (matched_in_answer / len(query_words))
+    answer_normalized = normalize_text(faq_item.answer)
+    answer_words = set(answer_normalized.split())
+    
+    # Считаем сколько значимых слов совпало (целые слова)
+    matched_in_answer = sum(1 for word in query_words if word in answer_words)
+    if matched_in_answer > 0:
+        score += 0.2 * (matched_in_answer / len(query_words))
 
     return min(score, 1.0)
 

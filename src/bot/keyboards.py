@@ -83,14 +83,26 @@ def faq_categories_keyboard(knowledge_base: KnowledgeBase) -> InlineKeyboardMark
     # Русские названия категорий с короткими callback
     category_mapping = {
         "general": ("Общие вопросы", "fq:g"),
+        "greeting": ("Приветствия", "fq:gr"),
         "pricing": ("Цены и оплата", "fq:p"),
         "timing": ("Сроки", "fq:t"),
+        "contacts": ("Контакты", "fq:c"),
+        "services": ("Услуги", "fq:s"),
+        "privacy": ("Конфиденциальность", "fq:pr"),
+        "refund": ("Возвраты", "fq:r"),
+        "complaints": ("Жалобы", "fq:cm"),
+        "support": ("Поддержка", "fq:sp"),
     }
 
     for category in categories:
-        display_name, callback_data = category_mapping.get(
-            category, (category.title(), f"fq:{category[:1]}")
-        )
+        # Получить русское название или создать fallback
+        if category in category_mapping:
+            display_name, callback_data = category_mapping[category]
+        else:
+            # Для неизвестных категорий - пропускаем или используем дефолт
+            display_name = "Прочее"
+            callback_data = f"fq:{category[:2]}"
+        
         buttons.append([
             InlineKeyboardButton(
                 text=display_name,

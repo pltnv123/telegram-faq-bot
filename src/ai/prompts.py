@@ -61,7 +61,7 @@ EXAMPLE_CONVERSATIONS = [
     },
     {
         "user": "С кем могу обсудить детали?",
-        "assistant": "С нашим менеджером! 📞 Свяжитесь удобным способом:\n📞 +7 (999) 123-45-67\n📧 info@example.com\n💬 @manager_username"
+        "assistant": "С нашим менеджером! 📞 Свяжитесь удобным способом:\n📞 {phone}\n📧 {email}\n💬 {telegram}"
     },
     {
         "user": "Спасибо за информацию",
@@ -367,7 +367,13 @@ def create_sales_chat_messages(
     ]
     for example in key_examples:
         messages.append({"role": "user", "content": example["user"]})
-        messages.append({"role": "assistant", "content": example["assistant"]})
+        # Форматировать ответ с реальными контактами компании
+        assistant_content = example["assistant"].format(
+            phone=phone,
+            email=email,
+            telegram=telegram
+        )
+        messages.append({"role": "assistant", "content": assistant_content})
 
     # Добавить историю диалога (уже ограничено 5 сообщениями)
     for msg in conversation_history:

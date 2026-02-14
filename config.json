@@ -1,0 +1,35 @@
+{
+  "company": {
+    "name": "Ваша Компания",
+    "description": "Краткое описание компании",
+    "phone": "+7 (999) 123-45-67",
+    "email": "info@example.com",
+    "telegram": "@manager_username",
+    "website": "https://example.com"
+  },
+  "bot": {
+    "welcome_message": "Привет! Я AI-ассистент компании {company_name}.\n\nЯ отвечу на любой вопрос о наших услугах. Просто напишите мне!",
+    "personality": "дружелюбный и профессиональный ассистент",
+    "sales_strategy": "естественный диалог с постепенным склонением к действию",
+    "language": "ru",
+    "max_response_length": 300
+  },
+  "ai": {
+    "model": "llama3.2:3b",
+    "temperature": 0.5,
+    "max_tokens": 300,
+    "context_messages": 5
+  },
+  "features": {
+    "quick_faq": true,
+    "streaming": true,
+    "progress_bar": true,
+    "hints": false,
+    "onboarding_tips": false
+  },
+  "faq": {
+    "quick_check_threshold": 0.75,
+    "search_threshold": 0.4,
+    "max_results": 3
+  }
+}

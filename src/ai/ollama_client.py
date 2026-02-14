@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiohttp
 from beartype import beartype
+
+# Настройка логгера для модуля
+logger = logging.getLogger(__name__)
 
 
 @beartype
@@ -101,26 +105,25 @@ class OllamaClient:
                     if response.status == 200:
                         data: dict[str, Any] = await response.json()
                         return data.get("response", "").strip()
-                    else:
-                        # Логируем ошибку но не падаем
+                    elif 500 <= response.status < 600:
+                        # 5xx ошибки - серверные, временные, делаем retry
                         error_text = await response.text()
-                        try:
-                            print(f"Ollama API error: {response.status} - {error_text}")
-                        except UnicodeEncodeError:
-                            print(f"Ollama API error: {response.status}")
+                        logger.warning(f"Ollama server error {response.status} (attempt {attempt + 1}/{max_retries}): {error_text}")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2 ** attempt)
+                        continue
+                    else:
+                        # 4xx ошибки - клиентские, не ретраим
+                        error_text = await response.text()
+                        logger.error(f"Ollama API error: {response.status} - {error_text}")
+                        return None
 
             except asyncio.TimeoutError:
-                try:
-                    print(f"Ollama timeout (attempt {attempt + 1}/{max_retries})")
-                except UnicodeEncodeError:
-                    print("Ollama timeout")
+                logger.warning(f"Ollama timeout (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)  # Экспоненциальная задержка
             except Exception as e:
-                try:
-                    print(f"Ollama error: {e}")
-                except UnicodeEncodeError:
-                    print("Ollama error")
+                logger.error(f"Ollama error: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
 
@@ -161,25 +164,25 @@ class OllamaClient:
                         data: dict[str, Any] = await response.json()
                         message = data.get("message", {})
                         return message.get("content", "").strip()
-                    else:
+                    elif 500 <= response.status < 600:
+                        # 5xx ошибки - серверные, временные, делаем retry
                         error_text = await response.text()
-                        try:
-                            print(f"Ollama chat API error: {response.status} - {error_text}")
-                        except UnicodeEncodeError:
-                            print(f"Ollama chat API error: {response.status}")
+                        logger.warning(f"Ollama server error {response.status} (attempt {attempt + 1}/{max_retries}): {error_text}")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2 ** attempt)
+                        continue
+                    else:
+                        # 4xx ошибки - клиентские, не ретраим
+                        error_text = await response.text()
+                        logger.error(f"Ollama chat API error: {response.status} - {error_text}")
+                        return None
 
             except asyncio.TimeoutError:
-                try:
-                    print(f"Ollama timeout (attempt {attempt + 1}/{max_retries})")
-                except UnicodeEncodeError:
-                    print("Ollama timeout")
+                logger.warning(f"Ollama timeout (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
             except Exception as e:
-                try:
-                    print(f"Ollama error: {e}")
-                except UnicodeEncodeError:
-                    print("Ollama error")
+                logger.error(f"Ollama error: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
 
@@ -251,38 +254,32 @@ class OllamaClient:
                                     break
                                     
                             except json.JSONDecodeError as e:
-                                try:
-                                    print(f"JSON decode error in streaming: {e}")
-                                except UnicodeEncodeError:
-                                    print("JSON decode error in streaming")
+                                logger.error(f"JSON decode error in streaming: {e}")
                                 continue
                             except Exception as e:
-                                try:
-                                    print(f"Error processing streaming chunk: {e}")
-                                except UnicodeEncodeError:
-                                    print("Error processing streaming chunk")
+                                logger.error(f"Error processing streaming chunk: {e}")
                                 continue
                         
                         return full_response.strip()
-                    else:
+                    elif 500 <= response.status < 600:
+                        # 5xx ошибки - серверные, временные, делаем retry
                         error_text = await response.text()
-                        try:
-                            print(f"Ollama streaming error: {response.status} - {error_text}")
-                        except UnicodeEncodeError:
-                            print(f"Ollama streaming error: {response.status}")
+                        logger.warning(f"Ollama streaming server error {response.status} (attempt {attempt + 1}/{max_retries}): {error_text}")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2 ** attempt)
+                        continue
+                    else:
+                        # 4xx ошибки - клиентские, не ретраим
+                        error_text = await response.text()
+                        logger.error(f"Ollama streaming error: {response.status} - {error_text}")
+                        raise Exception(f"Ollama API error: {response.status}")
 
             except asyncio.TimeoutError:
-                try:
-                    print(f"Ollama streaming timeout (attempt {attempt + 1}/{max_retries})")
-                except UnicodeEncodeError:
-                    print("Ollama streaming timeout")
+                logger.warning(f"Ollama streaming timeout (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
             except Exception as e:
-                try:
-                    print(f"Ollama streaming error: {e}")
-                except UnicodeEncodeError:
-                    print("Ollama streaming error")
+                logger.error(f"Ollama streaming error: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
 

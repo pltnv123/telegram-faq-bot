@@ -63,11 +63,12 @@ async def callback_services(
     if not callback.message:
         return
 
-    text = f"**📋 Наши услуги:**\n\n{knowledge_base.company.description}\n\nВыберите услугу для подробной информации:"
+    text = f"📋 Наши услуги:\n\n{knowledge_base.company.description}\n\nВыберите услугу для подробной информации:"
 
     await callback.message.edit_text(
         text=text,
         reply_markup=services_keyboard(knowledge_base),
+        parse_mode=None,
     )
     await callback.answer()
 
@@ -87,17 +88,18 @@ async def callback_pricing(
     if not callback.message:
         return
 
-    text = "**💰 Наши цены:**\n\n"
+    text = "💰 Наши цены:\n\n"
     for service in knowledge_base.services:
-        text += f"**{service.name}**\n"
-        text += f"Цена: {service.price}\n"
-        text += f"Срок: {service.duration}\n\n"
+        text += f"• {service.name}\n"
+        text += f"  Цена: {service.price}\n"
+        text += f"  Срок: {service.duration}\n\n"
 
     text += "Для точной оценки свяжитесь с нами!"
 
     await callback.message.edit_text(
         text=text,
         reply_markup=back_to_menu_keyboard(),
+        parse_mode=None,
     )
     await callback.answer()
 
@@ -130,19 +132,19 @@ async def callback_service_detail(
         return
 
     # Форматировать информацию об услуге
-    text = f"""**{service.name}**
+    text = f"""{service.name}
 
 {service.description}
 
-💰 **Цена:** {service.price}
-⏱ **Срок:** {service.duration}
+💰 Цена: {service.price}
+⏱ Срок: {service.duration}
 
-**Преимущества:**
+Преимущества:
 """
     for benefit in service.benefits:
         text += f"✓ {benefit}\n"
 
-    text += f"\n**Хотите заказать?**\nСвяжитесь с нами:\n"
+    text += f"\nХотите заказать?\nСвяжитесь с нами:\n"
     text += f"📞 {knowledge_base.company.phone}\n"
     text += f"📧 {knowledge_base.company.email}\n"
     text += f"💬 {knowledge_base.company.telegram}"
@@ -150,6 +152,7 @@ async def callback_service_detail(
     await callback.message.edit_text(
         text=text,
         reply_markup=back_to_menu_keyboard(),
+        parse_mode=None,
     )
     await callback.answer()
 
@@ -169,11 +172,12 @@ async def callback_faq(
     if not callback.message:
         return
 
-    text = "**❓ Частые вопросы**\n\nВыберите категорию:"
+    text = "❓ Частые вопросы\n\nВыберите категорию:"
 
     await callback.message.edit_text(
         text=text,
         reply_markup=faq_categories_keyboard(knowledge_base),
+        parse_mode=None,
     )
     await callback.answer()
 
@@ -199,8 +203,15 @@ async def callback_faq_category(
     # Маппинг коротких кодов в полные названия категорий
     code_to_category = {
         "g": "general",
+        "gr": "greeting",
         "p": "pricing",
         "t": "timing",
+        "c": "contacts",
+        "s": "services",
+        "pr": "privacy",
+        "r": "refund",
+        "cm": "complaints",
+        "sp": "support",
     }
     
     category = code_to_category.get(category_code, category_code)
@@ -213,19 +224,27 @@ async def callback_faq_category(
     # Форматировать список вопросов
     category_names = {
         "general": "Общие вопросы",
+        "greeting": "Приветствия",
         "pricing": "Цены и оплата",
         "timing": "Сроки",
+        "contacts": "Контакты",
+        "services": "Услуги",
+        "privacy": "Конфиденциальность",
+        "refund": "Возвраты",
+        "complaints": "Жалобы",
+        "support": "Поддержка",
     }
     category_name = category_names.get(category, category.title())
 
-    text = f"**{category_name}**\n\n"
+    text = f"{category_name}\n\n"
     for item in faq_items:
-        text += f"**Q:** {item.question}\n"
-        text += f"**A:** {item.answer}\n\n"
+        text += f"❓ {item.question}\n"
+        text += f"💬 {item.answer}\n\n"
 
     await callback.message.edit_text(
         text=text,
         reply_markup=back_to_menu_keyboard(),
+        parse_mode=None,
     )
     await callback.answer()
 
@@ -245,9 +264,9 @@ async def callback_contacts(
     if not callback.message:
         return
 
-    text = f"""**📞 Контакты**
+    text = f"""📞 Контакты
 
-**{knowledge_base.company.name}**
+{knowledge_base.company.name}
 {knowledge_base.company.description}
 
 🌐 Сайт: {knowledge_base.company.website}
@@ -261,6 +280,7 @@ async def callback_contacts(
     await callback.message.edit_text(
         text=text,
         reply_markup=back_to_menu_keyboard(),
+        parse_mode=None,
     )
     await callback.answer()
 
@@ -287,7 +307,7 @@ async def callback_stats(
     else:
         first_seen_str = "неизвестно"
 
-    stats_text = f"""**📊 Ваша статистика:**
+    stats_text = f"""📊 Ваша статистика:
 
 💬 Всего сообщений: {stats['total_messages']}
 📅 Первое обращение: {first_seen_str}
@@ -298,5 +318,6 @@ async def callback_stats(
     await callback.message.edit_text(
         text=stats_text,
         reply_markup=back_to_menu_keyboard(),
+        parse_mode=None,
     )
     await callback.answer()
