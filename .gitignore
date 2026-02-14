@@ -60,3 +60,7 @@ Thumbs.db
 .coverage
 htmlcov/
 .tox/
+
+# GitHub CLI (local install)
+gh.zip
+bin/
